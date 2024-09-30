@@ -1,0 +1,76 @@
+Requirement: Autoscaling of a deployment set based on SQS visible length
+Cloud Provider: AWS
+
+Tool Explored: KEDA ( Kubernetes Event-driven Auto Scaling )
+Details needed:
+  a. AWS Access Key - EXAMPLE ( AKIAEXAMPLEKEYID  )
+  b. AWS Secret Key - EXAMPLE ( EXAMPLESECRETKEY  )
+  c. queueURL - EXAMPLE ( https://sqs.us-east-1.amazonaws.com/123456789012/example-queue )
+  d. region of SQS - EXAMPLE ( ap-south-1 )
+  e. deployment set name - to which we want to enable autoscaling
+
+Steps to enable
+
+1. Install KEDA
+  kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.15.1/keda-2.15.1.yaml
+
+2. Create secret with AWS credentials
+
+  kubectl create secret generic aws-credentials \
+  --from-literal=awsAccessKeyID=AKIAEXAMPLEKEYID \
+  --from-literal=awsSecretAccessKey=EXAMPLESECRETKEY \
+  --namespace default
+
+3. create trigger-auth.yaml with below content
+----
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: keda-trigger-auth-aws
+  namespace: default
+spec:
+  secretTargetRef:
+    - parameter: awsAccessKeyID
+      name: aws-credentials
+      key: awsAccessKeyID
+    - parameter: awsSecretAccessKey
+      name: aws-credentials
+      key: awsSecretAccessKey
+
+4. create a scaledobject.yaml with below content and replace the variables
+----
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: combined-scaler
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: test-app-deployment  # Name of your Kubernetes deployment
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  triggers:
+    - type: aws-sqs-queue
+      metadata:
+        queueURL: https://sqs.us-east-1.amazonaws.com/123456789012/example-queue  # Replace with your actual SQS queue URL
+        awsRegion: us-east-1  # Replace with your actual AWS region
+        queueLength: "5"  # Replace with your actual queueLength condition
+      authenticationRef:
+        name: keda-trigger-auth-aws  # Reference to TriggerAuthentication
+
+5. Apply the TriggerAuthentication:
+    kubectl apply -f trigger-auth.yaml
+
+6. Apply the scaledObject:
+    kubectl apply -f scaledobject.yaml
+
+
+=================================================================
+Steps to Debug
+=================================================================
+1. check status of pods in keda namespace
+     kubectl get pods -n keda
+
+2. check logs of keda-operator pod in keda namespace
+     kubectl logs <keda-operator-pod-name> -n keda
+
